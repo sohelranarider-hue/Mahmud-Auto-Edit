@@ -986,88 +986,102 @@ export default function App() {
       bgVid.play().catch(() => {});
     }
 
-    await new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-      recorder.start(200);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        recorder.onstop = () => resolve();
+        recorder.onerror = (e) => reject(e);
+        recorder.start(200);
 
-      const tick = () => {
-        if (stopExportFlagRef.current) {
-          if (recorder.state !== 'inactive') recorder.stop();
-          return;
-        }
-
-        const elapsed = (performance.now() - startTimeMs) / 1000;
-        setExportElapsedSec(elapsed);
-
-        const pct = Math.min(
-          99,
-          18 + Math.round((elapsed / totalRenderSec) * 81)
-        );
-        setExportProgress(pct);
-
-        if (!voiceStarted && elapsed >= hookSec && voiceAudioEl) {
-          voiceStarted = true;
-          bgVid?.pause();
-          voiceAudioEl.play().catch(() => {});
-        }
-
-        // Measure live audio energy for reactive FX / spectrum analyzer
-        analyser.getByteFrequencyData(freqData);
-        let sum = 0;
-        for (let i = 0; i < freqData.length; i++) {
-          sum += freqData[i];
-        }
-        const liveAudioEnergy =
-          freqData.length > 0 ? sum / (freqData.length * 255) : 0;
-        const audioEnergy = Math.max(
-          liveAudioEnergy,
-          0.35 + 0.25 * Math.sin(elapsed * 6.5)
-        );
-
-        renderCompositeFrame(
-          ctx,
-          canvas.width,
-          canvas.height,
-          elapsed,
-          hookSec + mainNarrationSec,
-          {
-            frames: activeFrames,
-            videoElement: bgVid,
-            hookStartSec,
-            hookDuration,
-            hookSpeed,
-            borderLight: borderLightEnabled,
-            hookTemplate,
-            channelName,
-            channelSizePercent,
-            overlay: overlayEffect,
-            fxStyle,
-            transitionStyle,
-            ccEnabled,
-            scriptText: effectiveScript,
-            colorGrading,
-            zoomPercent,
-            quality: exportQuality,
-            extraFrame,
-          },
-          loadedImages,
-          loadedExtraImg,
-          particles,
-          audioEnergy,
-          loadedWatermarkImg
-        );
-
-        if (elapsed < totalRenderSec) {
-          requestAnimationFrame(tick);
-        } else {
-          if (recorder.state !== 'inactive') {
-            recorder.stop();
+        const tick = () => {
+          if (stopExportFlagRef.current) {
+            if (recorder.state !== 'inactive') recorder.stop();
+            return;
           }
-        }
-      };
 
-      requestAnimationFrame(tick);
-    });
+          const elapsed = (performance.now() - startTimeMs) / 1000;
+          setExportElapsedSec(elapsed);
+
+          const pct = Math.min(
+            99,
+            18 + Math.round((elapsed / totalRenderSec) * 81)
+          );
+          setExportProgress(pct);
+
+          if (!voiceStarted && elapsed >= hookSec && voiceAudioEl) {
+            voiceStarted = true;
+            bgVid?.pause();
+            voiceAudioEl.play().catch(() => {});
+          }
+
+          // Measure live audio energy for reactive FX / spectrum analyzer
+          analyser.getByteFrequencyData(freqData);
+          let sum = 0;
+          for (let i = 0; i < freqData.length; i++) {
+            sum += freqData[i];
+          }
+          const liveAudioEnergy =
+            freqData.length > 0 ? sum / (freqData.length * 255) : 0;
+          const audioEnergy = Math.max(
+            liveAudioEnergy,
+            0.35 + 0.25 * Math.sin(elapsed * 6.5)
+          );
+
+          try {
+            renderCompositeFrame(
+              ctx,
+              canvas.width,
+              canvas.height,
+              elapsed,
+              hookSec + mainNarrationSec,
+              {
+                frames: activeFrames,
+                videoElement: bgVid,
+                hookStartSec,
+                hookDuration,
+                hookSpeed,
+                borderLight: borderLightEnabled,
+                hookTemplate,
+                channelName,
+                channelSizePercent,
+                overlay: overlayEffect,
+                fxStyle,
+                transitionStyle,
+                ccEnabled,
+                scriptText: effectiveScript,
+                colorGrading,
+                zoomPercent,
+                quality: exportQuality,
+                extraFrame,
+              },
+              loadedImages,
+              loadedExtraImg,
+              particles,
+              audioEnergy,
+              loadedWatermarkImg
+            );
+          } catch (e) {
+            console.error('Frame rendering error:', e);
+            if (recorder.state !== 'inactive') recorder.stop();
+            return;
+          }
+
+          if (elapsed < totalRenderSec) {
+            requestAnimationFrame(tick);
+          } else {
+            if (recorder.state !== 'inactive') {
+              recorder.stop();
+            }
+          }
+        };
+
+        requestAnimationFrame(tick);
+      });
+    } catch (e) {
+      console.error('Export rendering pipeline error:', e);
+      showToast('Rendering error: ' + (e instanceof Error ? e.message : 'Unknown error'));
+      setIsExporting(false);
+      return;
+    }
 
     bgVid?.pause();
     voiceAudioEl?.pause();
